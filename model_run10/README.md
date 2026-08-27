@@ -13,7 +13,8 @@ A masked diffusion model for generating chess puzzles conditioned on themes, rat
 
 ## Models
 
-We provide two models. The main model, which is an updated version of the one presented in our paper, is trained mainly for generating as many positions with a unique solution that match the themes the user asked for. In contrast, the model in the paper was mainly trained to maximize counter-intuitivity and uniqueness instead of thematic accuracy. The model from our paper can be used with the revision="paper" parameter.
+We provide two models both with 268M parameters. The main model, which is an updated version of the one presented in our paper, is trained mainly for generating as many positions with a unique solution that match the themes the user asked for. In contrast, the model in the paper was mainly trained to maximize counter-intuitivity and uniqueness instead of thematic accuracy. The model from our paper can be used with the revision="paper" parameter.
+
 
 ## Pipeline Documentation
 
@@ -21,39 +22,35 @@ We provide two models. The main model, which is an updated version of the one pr
 
 ```python
 pipeline(
-    themes: str | list[str | PuzzleTheme] | PuzzleTheme = None,
-    rating: float = 1500.0,
-    partial_board: str = None,
-    best_move: str = None,
+    themes: list[PuzzleTheme] | list[list[PuzzleTheme]] | None = None,
+    rating: float | list[float] = 1500.0,
+    partial_board: str | list[str] | None = None,
+    best_move: str | list[str] | None = None,
     batch_size: int = 1,
     steps: int = 256,
     temperature: float = 1.0,
-    schedule: str | Schedule = Schedule.linear,
-    generate_move_last: bool = True,
+    schedule: Schedule = Schedule.linear,
+    generate_move_last: bool = False,
 ) -> list[Position]
 ```
 
 ### Parameters
 
-- **`themes`** (`str | list[str | PuzzleTheme] | PuzzleTheme`, optional, default: `None`):  
-  The thematic tags to condition the puzzle generation on. Supports:
-  - Space-separated string: `"mateIn2 middlegame"`
-  - List of strings: `["mateIn2", "middlegame"]`
-  - List of `Theme` enum members: `[pipeline.Theme.mateIn2, pipeline.Theme.middlegame]`
-  - Single `Theme` enum member: `pipeline.Theme.mateIn1`
+- **`themes`** (`list[PuzzleTheme] | list[list[PuzzleTheme]]`, optional, default: `None`):  
+  The thematic tags to condition the puzzle generation on as a list of `PuzzleTheme` enum members (e.g. `[pipeline.Theme.mateIn2, pipeline.Theme.middlegame]`). Can also be a list of theme lists per position when generating a batch (e.g. `[[pipeline.Theme.fork], [pipeline.Theme.mateIn1]]`).
 
-- **`rating`** (`float`, optional, default: `1500.0`):  
-  Target puzzle difficulty rating. Scaled based on Lichess puzzle ratings (range: 399 to 3395).
+- **`rating`** (`float | list[float]`, optional, default: `1500.0`):  
+  Target puzzle difficulty rating. Scaled based on Lichess puzzle ratings. Can be a single float or a list of floats corresponding to each position in `batch_size`.
 
-- **`partial_board`** (`str`, optional, default: `None`):  
-  A partial FEN string to condition on, where unknown squares/fields are represented with `?`.  
-  *Example:* `"?????rk?/?????ppp/????????/????????/????????/???B????/????????/???????? w ??-- - ? ?"`
+- **`partial_board`** (`str | list[str]`, optional, default: `None`):  
+  A partial FEN string (or list of strings) to condition on, where unknown squares/fields are represented with `?` and empty squares with `.`.
+  *Example:* `"?????rk./?????ppp/????????/????????/????????/???B????/????????/???????? w ??-- - ? ?"`
 
-- **`best_move`** (`str`, optional, default: `None`):  
-  A UCI-format move string to force as the solution (e.g. `"d3h7"`, `"e7e8q"`, `"e2??"`). Can also contain `?` for unknown characters.
+- **`best_move`** (`str | list[str]`, optional, default: `None`):  
+  A UCI-format move string (or list of strings) to force as the solution (e.g. `"d3h7"`, `"e7e8q"`, `"e2??"`). Can also contain `?` for unknown characters.
 
 - **`batch_size`** (`int`, optional, default: `1`):  
-  Number of puzzle positions to generate in parallel.
+  Number of puzzle positions to generate in parallel. Automatically inferred if conditioning variables are provided as lists.
 
 - **`steps`** (`int`, optional, default: `256`):  
   Number of discrete diffusion unmasking steps. Higher steps generally yield higher quality and more valid positions, but lower values work as well. Tested values between 16 and 256.
@@ -61,14 +58,14 @@ pipeline(
 - **`temperature`** (`float`, optional, default: `1.0`):  
   Sampling temperature applied to the unmasking logits. Lower values make sampling more greedy/deterministic.
 
-- **`schedule`** (`str | Schedule`, optional, default: `Schedule.linear`):  
-  Noise schedule used for unmasking tokens. Can be a string or `pipeline.Schedule` enum:
-  - `pipeline.Schedule.linear` (`"linear"`)
-  - `pipeline.Schedule.cosine` (`"cosine"`)
-  - `pipeline.Schedule.geometric` (`"geometric"`)
-  - `pipeline.Schedule.polynomial` (`"polynomial"`)
+- **`schedule`** (`Schedule`, optional, default: `Schedule.linear`):  
+  Noise schedule used for unmasking tokens using the `pipeline.Schedule` enum:
+  - `pipeline.Schedule.linear`
+  - `pipeline.Schedule.cosine`
+  - `pipeline.Schedule.geometric`
+  - `pipeline.Schedule.polynomial`
 
-- **`generate_move_last`** (`bool`, optional, default: `True`):  
+- **`generate_move_last`** (`bool`, optional, default: `False`):  
   When `True`, the model first generates the full 64-square board position across `steps`, and then unmasks the 5 solution move tokens in a subsequent phase.
 
 ### Return Value
@@ -92,7 +89,7 @@ print(position.move)  # "a3a7"
 
 ### Available Themes
 
-All 66 supported themes can be accessed via `pipeline.Theme.<name>` or passed as strings:
+All 66 supported themes can be accessed via `pipeline.Theme.<name>` and passed as a list of theme enum objects:
 
 | Category | Available Themes |
 | :--- | :--- |
@@ -145,7 +142,7 @@ print(results[0].fen, results[0].move)
 partial_fen = "?????rk?/?????ppp/????????/????????/????????/???B????/????????/???????? w ??-- - ? ?"
 best_move = "d3h7"
 results = pipeline(
-    themes=themes.mate,
+    themes=[themes.mate],
     rating=1600,
     partial_board=partial_fen,
     best_move=best_move,
@@ -154,4 +151,15 @@ results = pipeline(
     schedule=schedules.cosine,
 )
 print(results[0].fen, results[0].move)
+
+# 3. Per-position conditioning variables in batch generation
+results = pipeline(
+    themes=[themes.middlegame, themes.long, themes.sacrifice],  # same themes
+    best_move=["???3", "???4", "???1"],  # unique best_moves (not guaranteed, but used for conditioning)
+    rating=2000,  # same ratings
+    batch_size=3,
+    steps=16,
+)
+for i, pos in enumerate(results, start=1):
+    print(f"Batch {i}: {pos.fen} | move: {pos.move}")
 ```

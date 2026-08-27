@@ -138,7 +138,7 @@ def convert(checkpoint_path, output_dir):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: uv run --directory src python -m hf_export.convert_checkpoint <path_to_checkpoint.pt> [output_directory]")
-        print("Example: uv run --directory src python -m hf_export.convert_checkpoint ./runs/rl/final_large_runs/ownThemeDistribution/run10/model_0020000.pt ./test_hf_export")
+        print("Example: uv run --directory src python -m hf_export.convert_checkpoint ./runs/rl/final_large_runs/ownThemeDistribution/run10/model_0020000.pt ../test_hf_export")
         sys.exit(1)
     
     chk_path = sys.argv[1]

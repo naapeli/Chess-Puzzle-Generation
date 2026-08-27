@@ -124,7 +124,7 @@ class Schedule(StrEnum):
 
 @dataclass(frozen=True)
 class Position:
-    fen: str
+    fen: str | None
     move: str | None
 
 # ==========================================
@@ -209,33 +209,64 @@ def scale_rating(rating):
     return (float(rating) - MIN_RATING) / (MAX_RATING - MIN_RATING)
 
 def tokens_to_fen(tokens_list):
-    board = "".join(board_token_2_str[token] for token in tokens_list[:64])
-    board = "/".join(board[i:i + 8] for i in range(0, len(board), 8))
-    board = re.sub(r"\.+", lambda string: str(len(string.group())), board)
-    
-    side = side_token_2_str[tokens_list[64]]
-    
-    castling = "".join(castling_token_2_str[token] for token in tokens_list[65:69])
-    castling = "-" if castling == "----" else re.sub("-", "", castling)
-    
-    en_passant = "".join([enpassant_token_2_str[token] for token in tokens_list[69:71]])
-    en_passant = "-" if en_passant == "--" else en_passant
-    
-    halfmove_counter = re.sub(r"\.", "", "".join(counter_token_2_str[token] for token in tokens_list[71:73]))
-    fullmove_counter = re.sub(r"\.", "", "".join(counter_token_2_str[token] for token in tokens_list[73:76]))
-    
-    return " ".join([board, side, castling, en_passant, halfmove_counter, fullmove_counter])
+    try:
+        board = "".join(board_token_2_str[token] for token in tokens_list[:64])
+        board = "/".join(board[i:i + 8] for i in range(0, len(board), 8))
+        board = re.sub(r"\.+", lambda string: str(len(string.group())), board)
+        
+        side = side_token_2_str[tokens_list[64]]
+        
+        castling = "".join(castling_token_2_str[token] for token in tokens_list[65:69])
+        castling = "-" if castling == "----" else re.sub("-", "", castling)
+        
+        ep1 = enpassant_token_2_str[tokens_list[69]]
+        ep2 = enpassant_token_2_str[tokens_list[70]]
+        if ep1 == "-" and ep2 == "-":
+            en_passant = "-"
+        elif ep1 in "abcdefgh" and ep2 in "12345678":
+            en_passant = ep1 + ep2
+        else:
+            return None
+        
+        halfmove_counter = re.sub(r"\.", "", "".join(counter_token_2_str[token] for token in tokens_list[71:73]))
+        fullmove_counter = re.sub(r"\.", "", "".join(counter_token_2_str[token] for token in tokens_list[73:76]))
+        if not halfmove_counter or not fullmove_counter:
+            return None
+        
+        return " ".join([board, side, castling, en_passant, halfmove_counter, fullmove_counter])
+    except (KeyError, IndexError):
+        return None
 
 def tokens_to_move(tokens_list):
-    move_tokens = tokens_list[-5:]
-    m1 = enpassant_token_2_str.get(move_tokens[0], "")
-    m2 = enpassant_token_2_str.get(move_tokens[1], "")
-    m3 = enpassant_token_2_str.get(move_tokens[2], "")
-    m4 = enpassant_token_2_str.get(move_tokens[3], "")
-    promotion = promote_token_2_str.get(move_tokens[4], "")
-    return m1 + m2 + m3 + m4 + (promotion if promotion != "-" else "")
+    try:
+        if len(tokens_list) < 5:
+            return None
+        move_tokens = tokens_list[-5:]
+        m1 = enpassant_token_2_str[move_tokens[0]]
+        m2 = enpassant_token_2_str[move_tokens[1]]
+        m3 = enpassant_token_2_str[move_tokens[2]]
+        m4 = enpassant_token_2_str[move_tokens[3]]
+        promotion = promote_token_2_str[move_tokens[4]]
+        if m1 not in "abcdefgh" or m2 not in "12345678" or m3 not in "abcdefgh" or m4 not in "12345678":
+            return None
+        return m1 + m2 + m3 + m4 + (promotion if promotion != "-" else "")
+    except (KeyError, IndexError):
+        return None
 
-def partial_fen_to_tokens(partial_fen: str, config, mask_token: int, best_move: str = None) -> torch.Tensor:
+def move_to_tokens(move: str, mask_token: int) -> list[int]:
+    move_toks = []
+    for idx, c in enumerate(move):
+        if c == "?":
+            move_toks.append(mask_token)
+        elif idx < 4:
+            move_toks.append(enpassant_str_2_token.get(c, mask_token))
+        else:
+            move_toks.append(promote_str_2_token.get(c, FENTokens.none))
+    while len(move_toks) < 5:
+        move_toks.append(FENTokens.none)
+    return move_toks[:5]
+
+def partial_fen_to_tokens(partial_fen: str, mask_token: int) -> list[int]:
     parts = partial_fen.strip().split(" ")
     board_part = parts[0]
     side_part = parts[1] if len(parts) > 1 else "w"
@@ -353,21 +384,22 @@ def partial_fen_to_tokens(partial_fen: str, config, mask_token: int, best_move: 
         fm_toks = [counter_str_2_token.get(c, FENTokens.pad_counter) for c in fm_str[:3]]
         tokens_list.extend(fm_toks)
 
+    return tokens_list
+
+def get_initial_tokens(config, mask_token: int, partial_board: str = None, best_move: str = None) -> torch.Tensor:
+    if partial_board is not None:
+        fen_tokens = partial_fen_to_tokens(partial_board, mask_token)
+    else:
+        fen_tokens = [mask_token] * config.fen_length
+
     if config.predict_moves:
         if best_move is not None:
-            move_toks = []
-            for idx, c in enumerate(best_move):
-                if c == "?":
-                    move_toks.append(mask_token)
-                elif idx < 4:
-                    move_toks.append(enpassant_str_2_token.get(c, mask_token))
-                else:
-                    move_toks.append(promote_str_2_token.get(c, FENTokens.none))
-            while len(move_toks) < 5:
-                move_toks.append(FENTokens.none)
-            tokens_list.extend(move_toks[:5])
+            move_toks = move_to_tokens(best_move, mask_token)
         else:
-            tokens_list.extend([mask_token] * 5)
+            move_toks = [mask_token] * config.move_length
+        tokens_list = fen_tokens + move_toks
+    else:
+        tokens_list = fen_tokens
 
     return torch.tensor(tokens_list, dtype=torch.long)
 
@@ -388,37 +420,81 @@ class ChessPuzzlePipeline(DiffusionPipeline):
     @torch.no_grad()
     def __call__(
         self,
-        themes: str | list[str | PuzzleTheme] | PuzzleTheme = None,
-        rating: float = 1500.0,
-        partial_board: str = None,
-        best_move: str = None,
+        themes: list[PuzzleTheme] | list[list[PuzzleTheme]] | None = None,
+        rating: float | list[float] = 1500.0,
+        partial_board: str | list[str] | None = None,
+        best_move: str | list[str] | None = None,
         batch_size: int = 1,
         steps: int = 256,
         temperature: float = 1.0,
-        schedule: str | Schedule = Schedule.linear,
-        generate_move_last: bool = True,
+        schedule: Schedule = Schedule.linear,
+        generate_move_last: bool = False,
     ):
         device = self.device
         self.model.eval()
 
-        # 1. Preprocess context inputs (themes & rating)
-        scaled_rating = scale_rating(rating)
-        ratings_tensor = torch.full((batch_size, 1), scaled_rating, dtype=torch.float32, device=device)
+        # 1. Preprocess context inputs (themes, rating, partial_board, best_move)
+        detected_batch_sizes = {}
+
+        if isinstance(rating, (list, tuple)):
+            detected_batch_sizes["rating"] = len(rating)
+
+        if isinstance(partial_board, (list, tuple)):
+            detected_batch_sizes["partial_board"] = len(partial_board)
+
+        if isinstance(best_move, (list, tuple)):
+            detected_batch_sizes["best_move"] = len(best_move)
+
+        themes_is_per_item = (
+            isinstance(themes, (list, tuple))
+            and len(themes) > 0
+            and isinstance(themes[0], (list, tuple))
+        )
+        if themes_is_per_item:
+            detected_batch_sizes["themes"] = len(themes)
+
+        if detected_batch_sizes:
+            sizes = list(detected_batch_sizes.values())
+            first_size = sizes[0]
+            if any(s != first_size for s in sizes):
+                raise ValueError(f"Inconsistent list lengths across conditioning variables: {detected_batch_sizes}")
+
+            if batch_size != 1 and batch_size != first_size:
+                raise ValueError(f"Specified batch_size ({batch_size}) does not match conditioning list length ({first_size})")
+
+            batch_size = first_size
+
+        if isinstance(rating, (list, tuple)):
+            ratings_list = list(rating)
+        else:
+            ratings_list = [rating] * batch_size
+
+        if isinstance(partial_board, (list, tuple)):
+            partial_boards_list = list(partial_board)
+        else:
+            partial_boards_list = [partial_board] * batch_size
+
+        if isinstance(best_move, (list, tuple)):
+            best_moves_list = list(best_move)
+        else:
+            best_moves_list = [best_move] * batch_size
+
+        if themes_is_per_item:
+            themes_per_item = list(themes)
+        else:
+            single_themes = themes if themes is not None else []
+            themes_per_item = [single_themes] * batch_size
+
+        scaled_ratings = [scale_rating(r) for r in ratings_list]
+        ratings_tensor = torch.tensor(scaled_ratings, dtype=torch.float32, device=device).unsqueeze(1)
 
         themes_tensor = torch.zeros((batch_size, len(unique_themes)), dtype=torch.float32, device=device)
-        if themes:
-            theme_list = []
-            if isinstance(themes, (list, tuple)):
-                for t in themes:
-                    theme_list.append(t.value if isinstance(t, StrEnum) else str(t))
-            elif isinstance(themes, StrEnum):
-                theme_list.append(themes.value)
-            elif isinstance(themes, str):
-                theme_list.extend(themes.strip().split())
-
-            for t in theme_list:
-                if t in theme_to_idx:
-                    themes_tensor[:, theme_to_idx[t]] = 1.0
+        for idx, item_themes in enumerate(themes_per_item):
+            if item_themes:
+                for t in item_themes:
+                    theme_val = t.value if isinstance(t, StrEnum) else str(t)
+                    if theme_val in theme_to_idx:
+                        themes_tensor[idx, theme_to_idx[theme_val]] = 1.0
 
         # 2. Setup schedule
         if schedule == Schedule.linear:
@@ -436,11 +512,14 @@ class ChessPuzzlePipeline(DiffusionPipeline):
         mask_token = self.model.config.n_fen_tokens + (self.model.config.n_move_tokens if self.model.config.predict_moves else 0)
         seq_length = self.model.config.fen_length + (self.model.config.move_length if self.model.config.predict_moves else 0)
 
-        if partial_board is not None:
-            initial_tokens = partial_fen_to_tokens(partial_board, self.model.config, mask_token, best_move=best_move)
-            tokens = initial_tokens.unsqueeze(0).repeat(batch_size, 1).to(device)
-        else:
-            tokens = torch.full((batch_size, seq_length), mask_token, device=device, dtype=torch.long)
+        token_rows = []
+        for i in range(batch_size):
+            pb = partial_boards_list[i]
+            bm = best_moves_list[i]
+            row_tokens = get_initial_tokens(self.model.config, mask_token, partial_board=pb, best_move=bm)
+            token_rows.append(row_tokens)
+
+        tokens = torch.stack(token_rows, dim=0).to(device)
 
         T_grid = torch.linspace(0, 1, steps + 1, device=device)
 
