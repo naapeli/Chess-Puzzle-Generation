@@ -122,6 +122,11 @@ class Schedule(StrEnum):
     geometric = "geometric"
     polynomial = "polynomial"
 
+class MoveGenerationOrder(StrEnum):
+    first = "first"
+    simultaneous = "simultaneous"
+    last = "last"
+
 @dataclass(frozen=True)
 class Position:
     fen: str | None
@@ -410,12 +415,14 @@ def get_initial_tokens(config, mask_token: int, partial_board: str = None, best_
 class ChessPuzzlePipeline(DiffusionPipeline):
     Theme = PuzzleTheme
     Schedule = Schedule
+    MoveGenerationOrder = MoveGenerationOrder
 
     def __init__(self, model):
         super().__init__()
         self.register_modules(model=model)
         self.Theme = PuzzleTheme
         self.Schedule = Schedule
+        self.MoveGenerationOrder = MoveGenerationOrder
 
     @torch.no_grad()
     def __call__(
@@ -428,7 +435,7 @@ class ChessPuzzlePipeline(DiffusionPipeline):
         steps: int = 256,
         temperature: float = 1.0,
         schedule: Schedule = Schedule.linear,
-        generate_move_last: bool = False,
+        move_generation_order: MoveGenerationOrder = MoveGenerationOrder.simultaneous,
     ):
         device = self.device
         self.model.eval()
@@ -521,20 +528,27 @@ class ChessPuzzlePipeline(DiffusionPipeline):
 
         tokens = torch.stack(token_rows, dim=0).to(device)
 
-        T_grid = torch.linspace(0, 1, steps + 1, device=device)
-
         if not self.model.config.predict_moves:
-            generate_move_last = False
-            
-        if generate_move_last:
-            phases = [
-                (0, self.model.config.fen_length, steps), 
-                (self.model.config.fen_length, seq_length, steps // 4)
-            ]
-        else:
-            phases = [(0, seq_length, steps)]
+            move_generation_order = MoveGenerationOrder.simultaneous
+        
+        match move_generation_order:
+            case MoveGenerationOrder.first:
+                phases = [
+                    (self.model.config.fen_length, seq_length, max(1, steps // 4)),
+                    (0, self.model.config.fen_length, steps)
+                ]
+            case MoveGenerationOrder.simultaneous:
+                phases = [(0, seq_length, steps)]
+            case MoveGenerationOrder.last:
+                phases = [
+                    (0, self.model.config.fen_length, steps), 
+                    (self.model.config.fen_length, seq_length, max(1, steps // 4))
+                ]
+            case _:
+                raise ValueError(f"Unknown move_generation_order: {move_generation_order}")
 
         for start_idx, end_idx, step_count in phases:
+            T_grid = torch.linspace(0, 1, step_count + 1, device=device)
             for i in range(step_count, 0, -1):
                 t = T_grid[i]
                 s = T_grid[i - 1]

@@ -6,7 +6,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # path = "model_main"
 # path = "model_paper"
-path = "model_run15"
+path = "model_run19"
 # path = "naapeli/chess-puzzle-generator"
 pipeline = DiffusionPipeline.from_pretrained(
     path,
@@ -22,47 +22,16 @@ pipeline.to(device)
 
 themes = pipeline.Theme
 schedules = pipeline.Schedule
-
-# results = pipeline(
-#     themes=[themes.mateIn2, themes.middlegame],
-#     rating=1800,
-#     batch_size=1,
-#     steps=4,
-#     schedule=schedules.linear,
-# )
-# print("Position 1:", results[0].fen, results[0].move)
-
-# # To condition the model on a partial board and a best move, use the following:
-# partial_fen = "?????rk?/?????ppp/????????/????????/????????/???B????/????????/???????? w ??-- - ? ?"
-# # best_move = "d3h7"
-# best_move = "??h7"
-# results_partial = pipeline(
-#     themes=themes.mate,
-#     rating=1600,
-#     partial_board=partial_fen,
-#     best_move=best_move,
-#     batch_size=1,
-#     schedule=schedules.cosine,
-#     steps=4,
-# )
-# print("Position 2:", results_partial[0].fen, results_partial[0].move)
-
-# results_partial = pipeline(
-#     themes=[themes.master, themes.masterVsMaster, themes.superGM],
-#     rating=2600,
-#     batch_size=1,
-#     schedule=schedules.geometric,
-#     steps=4,
-# )
-# print("Position 3:", results_partial[0].fen, results_partial[0].move)
-
-
+move_generation_orders = pipeline.MoveGenerationOrder
 
 results = pipeline(
-    themes=[themes.sacrifice],
+    themes=[themes.attackingF2F7],
+    # best_move = ["???1", "???2", "???3", "???4", "???5", "???6", "???7", "???8"],
+    # best_move = ["??a?", "??b?", "??c?", "??d?", "??e?", "??f?", "??g?", "??h?"],
     rating=2000,
-    batch_size=8,
+    batch_size=4,
     steps=16,
+    move_generation_order=move_generation_orders.simultaneous
 )
 for i, pos in enumerate(results, start=1):
     print(f"Batch {i}: {pos.fen} | move: {pos.move}")

@@ -30,7 +30,7 @@ pipeline(
     steps: int = 256,
     temperature: float = 1.0,
     schedule: Schedule = Schedule.linear,
-    generate_move_last: bool = False,
+    move_generation_order: MoveGenerationOrder = MoveGenerationOrder.simultaneous,
 ) -> list[Position]
 ```
 
@@ -65,8 +65,11 @@ pipeline(
   - `pipeline.Schedule.geometric`
   - `pipeline.Schedule.polynomial`
 
-- **`generate_move_last`** (`bool`, optional, default: `False`):  
-  When `True`, the model first generates the full 64-square board position across `steps`, and then unmasks the 5 solution move tokens in a subsequent phase.
+- **`move_generation_order`** (`MoveGenerationOrder`, optional, default: `MoveGenerationOrder.simultaneous`):  
+  The order in which the board and move tokens are generated:
+  - `MoveGenerationOrder.simultaneous`: Board and move tokens are generated in a single phase.
+  - `MoveGenerationOrder.first`: Move tokens are generated first, then the board tokens.
+  - `MoveGenerationOrder.last`: Board tokens are generated first, then the move tokens.
 
 ### Return Value
 
@@ -127,6 +130,7 @@ pipeline.to(device)
 
 themes = pipeline.Theme
 schedules = pipeline.Schedule
+move_generation_orders = pipeline.MoveGenerationOrder
 
 # 1. Unconditional generation conditioned on themes and rating
 results = pipeline(
@@ -135,6 +139,7 @@ results = pipeline(
     batch_size=1,
     steps=64,
     schedule=schedules.linear,
+    move_generation_order=move_generation_orders.first
 )
 print(results[0].fen, results[0].move)
 
