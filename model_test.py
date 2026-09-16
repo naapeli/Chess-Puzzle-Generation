@@ -6,7 +6,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # path = "model_main"
 # path = "model_paper"
-path = "model_run19"
+path = "model_run22"
 # path = "naapeli/chess-puzzle-generator"
 pipeline = DiffusionPipeline.from_pretrained(
     path,
@@ -25,7 +25,7 @@ schedules = pipeline.Schedule
 move_generation_orders = pipeline.MoveGenerationOrder
 
 results = pipeline(
-    themes=[themes.attackingF2F7],
+    themes=[themes.skewer],
     # best_move = ["???1", "???2", "???3", "???4", "???5", "???6", "???7", "???8"],
     # best_move = ["??a?", "??b?", "??c?", "??d?", "??e?", "??f?", "??g?", "??h?"],
     rating=2000,
