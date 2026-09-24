@@ -26,18 +26,18 @@ engines_lock = threading.Lock()
 
 def init_worker():
     engine = SimpleEngine.popen_uci(base_path / ".." / "Stockfish" / "src" / "stockfish")
-    engine.configure({"Threads": 1, "Hash": 32})
+    engine.configure({"Threads": 1, "Hash": 256})
     thread_local.engine = engine
     with engines_lock:
         engines.append(engine)
 
 from MaskedDiffusion.model import MaskedDiffusion
-from tokenization.tokenization import theme_preprocessor, scale_ratings, unscale_ratings, tokens_to_fen, tokens_to_move, tokenize_fen, tokenize_move
-from metrics.themes import legal , get_unique_puzzle_from_fen, counter_intuitive
+from tokenization.tokenization import theme_preprocessor, scale_ratings, unscale_ratings, tokens_to_fen, tokens_to_move, tokenize_fen, tokenize_move, tokenize_partial_move
+from metrics.themes import legal, get_unique_puzzle_from_fen, counter_intuitive
 from metrics.diversity_filtering import ReplayBuffer
 from metrics.rewards import good_piece_counts, inter_batch_distances, intra_batch_distances
 from MaskingSchedule.MaskingSchedule import string_to_schedule
-from rl.espo import generate_random_themes, theme_reward
+from rl.espo import generate_random_themes, generate_random_moves, theme_reward, count_extra_themes
 from metrics.cook import cook
 
 
@@ -61,15 +61,23 @@ def get_stockfish_data(fen, model_move):
     if not legal(fen): return None, None, None, None, False, 0.0, []
     stockfish = thread_local.engine
     board = chess.Board(fen)
-    limit = Limit(depth=15, time=10, nodes=8_000_000)
     
-    analysis = stockfish.analyse(board, limit=limit)
-    best_move = analysis["pv"][0] if "pv" in analysis else None
-    pv_string = " ".join([move.uci() for move in analysis["pv"]]) if "pv" in analysis else ""
-    player_to_move = board.turn
-    best_score = analysis["score"].pov(player_to_move) if "score" in analysis else None
-    
+    stockfish.configure({"Clear Hash": None})
+    ci_sol, ci_val = counter_intuitive(fen, stockfish, return_value=True)
     puzzle = get_unique_puzzle_from_fen(fen, stockfish)
+
+    player_to_move = board.turn
+    limit = Limit(depth=50, time=0.05, nodes=50_000_000)
+
+    if puzzle is not None:
+        best_move = puzzle.mainline[0].move if puzzle.mainline else None
+        best_score = puzzle.cp
+        pv_string = " ".join([node.move.uci() for node in puzzle.mainline])
+    else:
+        analysis = stockfish.analyse(board, limit=limit)
+        best_move = analysis["pv"][0] if "pv" in analysis else None
+        pv_string = " ".join([move.uci() for move in analysis["pv"]]) if "pv" in analysis else ""
+        best_score = analysis["score"].pov(player_to_move) if "score" in analysis else None
     
     cp_loss = None
     if model_move and best_score is not None:
@@ -89,9 +97,6 @@ def get_stockfish_data(fen, model_move):
         except:
             pass
 
-    stockfish.configure({"Clear Hash": None})
-    ci_sol, ci_val = counter_intuitive(fen, stockfish, return_value=True)
-
     generation_themes = []
     if puzzle is not None:
         generation_themes = cook(puzzle, stockfish)
@@ -100,34 +105,62 @@ def get_stockfish_data(fen, model_move):
         return puzzle, None, cp_loss, pv_string, ci_sol, ci_val, generation_themes
     return puzzle, best_move.uci(), cp_loss, pv_string, ci_sol, ci_val, generation_themes
 
-def save_board(fen, tag, step, themes=None, rating=None, counter_intuitive=None, reward=None):
+def save_board(
+    fen,
+    tag,
+    step,
+    themes=None,
+    rating=None,
+    counter_intuitive=None,
+    reward=None,
+    predicted_move=None,
+    actual_move=None,
+    uniqueness=None,
+    themes_match=None,
+    detected_themes=None,
+    diversity_metrics=None,
+):
     try:
-        board = chess.Board(fen)
-        svg_data = svg.board(board, size=300)
-        png_data = cairosvg.svg2png(bytestring=svg_data.encode("utf-8"))
-        board_img = Image.open(io.BytesIO(png_data)).convert("RGB")
-        text_height = 80 if (themes is not None or counter_intuitive is not None or reward is not None) else 50
-        info_pane = Image.new("RGB", (board_img.width, text_height), (255, 255, 255))
-        draw = ImageDraw.Draw(info_pane)
-        
         parts = []
+        if reward is not None:
+            parts.append(f"Reward: {reward:.2f}")
         if rating is not None:
             parts.append(f"Rating: {rating:.0f}")
         if counter_intuitive is not None:
             parts.append(f"CI: {counter_intuitive:.4f}")
-        if reward is not None:
-            parts.append(f"R: {reward:.2f}")
+        if uniqueness is not None:
+            parts.append(f"Unique: {uniqueness}")
+        if themes_match is not None:
+            parts.append(f"ThemeMatch: {themes_match}")
+
         header = " | ".join(parts)
 
-        if themes is not None or counter_intuitive is not None or reward is not None:
-            text_content = f"{header}\n{themes}\n{fen}" if header else f"{themes}\n{fen}"
-        else:
-            text_content = fen
+        lines = []
+        if header:
+            lines.append(f"**{header}**\n")
+        lines.append(f"- **FEN**: `{fen}`" if fen is not None else "- **FEN**: None")
+        lines.append(f"- **Predicted Best Move**: `{predicted_move}`" if predicted_move is not None else "- **Predicted Best Move**: None")
+        lines.append(f"- **Actual Best Move**: `{actual_move}`" if actual_move is not None else "- **Actual Best Move**: None")
+        if counter_intuitive is not None:
+            lines.append(f"- **CI Value**: {counter_intuitive:.4f}")
+        if uniqueness is not None:
+            lines.append(f"- **Uniqueness**: {uniqueness}")
+        if themes_match is not None:
+            lines.append(f"- **Theme Matching**: {themes_match}")
+        if themes is not None:
+            lines.append(f"- **Target Themes**: {themes}")
+        if detected_themes is not None:
+            lines.append(f"- **Detected Themes**: {detected_themes}")
 
-        draw.text((10, 10), text_content, fill=(0, 0, 0))
-        combined_img = np.vstack((np.array(board_img), np.array(info_pane)))
-        
-        writer.add_image(tag, combined_img, step, dataformats="HWC")
+        if diversity_metrics:
+            lines.append("- **Diversity Metrics**:")
+            for k, v in diversity_metrics.items():
+                if isinstance(v, float):
+                    lines.append(f"  - {k}: {v:.4f}")
+                else:
+                    lines.append(f"  - {k}: {v}")
+
+        text_content = "\n".join(lines)
         writer.add_text(f"{tag}/fen", text_content, step)
     except Exception:
         pass
@@ -152,6 +185,7 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
     cp_losses = torch.full((batch_size,), float("nan"), dtype=torch.float32)
     # themes_match = torch.zeros(batch_size, dtype=bool)
     themes_match = torch.zeros(batch_size, dtype=bool) if config.use_context else torch.ones(batch_size, dtype=bool)
+    extra_theme_counts = torch.zeros(batch_size, dtype=torch.float32)
     # rating_penalty = torch.zeros(batch_size, dtype=torch.float32)
 
     if config.use_context and themes_tokens is not None:
@@ -206,7 +240,7 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
 
         piece_counts[i] = good_piece_counts(fen)
         
-        move_matches[i] = (move == best_moves[i])
+        move_matches[i] = (move is not None and best_moves[i] is not None and move == best_moves[i])
         if found_cp_losses[i] is not None:
             cp_losses[i] = found_cp_losses[i]
 
@@ -225,6 +259,7 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
         generation_themes = generation_themes_list[i]
         if config.use_context and themes[i] is not None:
             themes_match[i] = theme_reward(themes[i], generation_themes)
+            extra_theme_counts[i] = count_extra_themes(themes[i], generation_themes)
 
         # if the position returns a high reward, add it to the buffer
         good_distances = (
@@ -232,7 +267,7 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
             # (intra_batch_pv_dist[i] >= 1) and 
             (inter_batch_fen_dist[i] >= 6) and 
             # (inter_batch_pv_dist[i] >= 1) and 
-            # (intra_batch_opponent_pv_dist[i] >= 1) and 
+            (intra_batch_opponent_pv_dist[i] >= 1) and 
             (intra_batch_abstracted_pv_dist[i] >= 1) and
             (inter_batch_abstracted_pv_dist[i] >= 1)
         )
@@ -263,10 +298,10 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
     pass_diversity_filtering = (
         good_intra_fen & good_inter_fen & 
         # good_intra_pv & good_inter_pv & 
-        # good_intra_opponent_pv & 
+        good_intra_opponent_pv & 
         good_intra_abstracted_pv & 
-        good_inter_abstracted_pv# &
-        # (entropy > np.log(args.steps) + 0.6)
+        good_inter_abstracted_pv #&
+        # (entropy > np.log(args.steps) + 0.35)  # 0.6
     )
     # pass_diversity_filtering = torch.ones(batch_size, dtype=bool)
 
@@ -294,34 +329,63 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
         "pass_diversity_filtering": pass_diversity_filtering[is_valid].float().mean().item() if is_valid.any() else 0,
         "move_match_rate": move_matches[legal_position].float().mean().item() if legal_position.any() and config.predict_moves else 0,
         "cp_loss": cp_losses[is_valid & ~torch.isnan(cp_losses)].mean().item() if (is_valid & ~torch.isnan(cp_losses)).any() and config.predict_moves else 0,
+        "extra_theme_count": extra_theme_counts[is_valid & themes_match].mean().item() if (is_valid & themes_match).any() and config.use_context else 0,
     }
 
     if (is_valid & themes_match).any():
         components["counter_intuitive_values_max_given_unique_and_theme"] = counter_intuitive_values[is_valid & themes_match].max().item()
         components["counter_intuitive_values_given_unique_and_theme"] = counter_intuitive_values[is_valid & themes_match].mean().item()
 
+    effective_move_match = move_matches if config.predict_moves else torch.ones(batch_size, dtype=torch.bool)
     rewards = torch.zeros(batch_size, dtype=torch.float32)
-    rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & unique_solution, torch.clamp(10 * counter_intuitive_values, min=0.0), rewards)
-    # rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & unique_solution, 1e-4, rewards)
-    # rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & unique_and_counter_intuitive, 1.0, rewards)
-    # rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & unique_solution, 1.0 + 10 * counter_intuitive_values, rewards)
+    # positive_rewards = 1.0 + 20 * counter_intuitive_values
+    positive_rewards = 1.0 + 10.0 * counter_intuitive_values + torch.where(counter_intuitive_solution, 3.0, 0.0)
+    rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & effective_move_match & unique_solution, positive_rewards, rewards)
+    # rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & effective_move_match & unique_solution & (counter_intuitive_values > 0.0), 1.0, rewards)
     rewards = torch.where(~legal_position, -2.0, rewards)
     rewards = rewards.to(torch.float32)
 
     log_rewards(components, rewards, step)
 
-    index = torch.argmax(rewards).item()
-    save_board(batch_fens[index], "Generations", step, themes[index], true_ratings[index], counter_intuitive=counter_intuitive_values[index].item(), reward=rewards[index].item())
-    index = torch.argmin(rewards).item()
-    save_board(batch_fens[index], "Worst_Generations", step, themes[index], true_ratings[index], counter_intuitive=counter_intuitive_values[index].item(), reward=rewards[index].item())
-    index = torch.randint(0, batch_size, (1,)).item()
-    save_board(batch_fens[index], "Random_Generations", step, themes[index], true_ratings[index], counter_intuitive=counter_intuitive_values[index].item(), reward=rewards[index].item())
+    def log_puzzle_sample(i, tag):
+        div_metrics = {
+            "dist_intra_fen": intra_batch_fen_dist[i].item(),
+            "dist_inter_fen": inter_batch_fen_dist[i].item(),
+            "dist_intra_pv": intra_batch_pv_dist[i].item(),
+            "dist_inter_pv": inter_batch_pv_dist[i].item(),
+            "dist_intra_opponent_pv": intra_batch_opponent_pv_dist[i].item(),
+            "dist_intra_abstracted_pv": intra_batch_abstracted_pv_dist[i].item(),
+            "dist_inter_abstracted_pv": inter_batch_abstracted_pv_dist[i].item(),
+            "pass_diversity_filtering": bool(pass_diversity_filtering[i].item()),
+        }
+        save_board(
+            fen=batch_fens[i],
+            tag=tag,
+            step=step,
+            themes=themes[i],
+            rating=true_ratings[i],
+            counter_intuitive=counter_intuitive_values[i].item(),
+            reward=rewards[i].item(),
+            predicted_move=generations[i][1],
+            actual_move=best_moves[i],
+            uniqueness=bool(unique_solution[i].item()),
+            themes_match=bool(themes_match[i].item()),
+            detected_themes=generation_themes_list[i],
+            diversity_metrics=div_metrics,
+        )
 
-    valid_puzzles = unique_solution & counter_intuitive_solution & pass_diversity_filtering & themes_match
+    index = torch.argmax(rewards).item()
+    log_puzzle_sample(index, "Generations")
+    index = torch.argmin(rewards).item()
+    log_puzzle_sample(index, "Worst_Generations")
+    index = torch.randint(0, batch_size, (1,)).item()
+    log_puzzle_sample(index, "Random_Generations")
+
+    valid_puzzles = unique_solution & counter_intuitive_solution & themes_match
     if valid_puzzles.any():
         masked_ci = torch.where(valid_puzzles, counter_intuitive_values, torch.tensor(-float('inf'), device=counter_intuitive_values.device))
         best_ci_index = torch.argmax(masked_ci).item()
-        save_board(batch_fens[best_ci_index], "Puzzles", step, themes[best_ci_index], true_ratings[best_ci_index], counter_intuitive=counter_intuitive_values[best_ci_index].item(), reward=rewards[best_ci_index].item())
+        log_puzzle_sample(best_ci_index, "Puzzles")
     
     return rewards.to(x_t.device, dtype=torch.float32)
 
@@ -384,6 +448,15 @@ def train_ddpo(model, ref_model, optimizer, scheduler, config, device, args, ste
             themes, ratings = None, None
             themes_one_hot = torch.zeros((total_batch_size, 1), device=device)
             scaled_ratings = torch.zeros((total_batch_size,), device=device)
+
+        if getattr(args, "condition_on_move", False) and config.predict_moves:
+            sampled_moves = generate_random_moves(args.batch_size, themes=themes)
+            group_moves = [m for m in sampled_moves for _ in range(args.group_size)]
+            move_tokens_list = [tokenize_partial_move(m, config.mask_token) for m in group_moves]
+            move_tokens_tensor = torch.tensor(move_tokens_list, dtype=torch.long, device=device)
+            x_t[:, config.fen_length:config.fen_length + 5] = move_tokens_tensor
+        else:
+            sampled_moves = None
 
         T_grid = torch.linspace(0, 1, args.steps + 1, device=device)
         total_entropy = torch.zeros(total_batch_size, device=device)
@@ -632,7 +705,9 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", type=float, default=1.0)
     parser.add_argument("--group_size", type=int, default=4)
     parser.add_argument("--lichess_distribution", action="store_true", help="Use Lichess theme distribution instead of custom theme distribution")
+    parser.add_argument("--condition_on_move", action="store_true", help="Sample random partial move and condition generation on it")
     args = parser.parse_args()
+
 
     cpu_count = int(os.environ.get("SLURM_CPUS_PER_TASK")) * int(os.environ.get("SLURM_NTASKS")) - 2
 
@@ -660,13 +735,15 @@ if __name__ == "__main__":
     buffer = ReplayBuffer(capacity, base_path / "dataset" / buffer_folder)
 
     model = MaskedDiffusion(config)
-    model.load_state_dict(checkpoint["model"])
+    state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in checkpoint["model"].items()}
+    model.load_state_dict(state_dict)
     model.to(device=device)
     model.train()
     model = torch.compile(model)
 
     reference_model = MaskedDiffusion(reference_checkpoint["config"])
-    reference_model.load_state_dict(reference_checkpoint["model"])
+    ref_state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in reference_checkpoint["model"].items()}
+    reference_model.load_state_dict(ref_state_dict)
     reference_model.to(device=device)
     reference_model.eval()
     reference_model.requires_grad_(False)
@@ -681,8 +758,10 @@ if __name__ == "__main__":
 
     def save_state(step_val):
         checkpoint_path = path / f"model_{step_val:07d}.pt"
+        raw_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+        raw_model = raw_model.module if hasattr(raw_model, "module") else raw_model
         save_dict = {
-            "model": model.state_dict(),
+            "model": raw_model.state_dict(),
             "config": config,
             "optimizer": optimizer.state_dict(),
             "step": step_val

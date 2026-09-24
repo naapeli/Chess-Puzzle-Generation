@@ -26,10 +26,15 @@ mate_soon = Mate(15)
 # mate_defense_limit = Limit(depth=8, time=0.05, nodes=4_000_000)
 # counter_intuitive_limit = Limit(depth=50, time=0.1, nodes=50_000_000)
 
+# uniqueness_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
+# pair_limit = Limit(depth=15, time=0.1, nodes=8_000_000)
+# mate_defense_limit = Limit(depth=8, time=0.05, nodes=4_000_000)
+# counter_intuitive_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
+
 uniqueness_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
 pair_limit = Limit(depth=15, time=0.1, nodes=8_000_000)
 mate_defense_limit = Limit(depth=8, time=0.05, nodes=4_000_000)
-counter_intuitive_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
+counter_intuitive_limit = Limit(depth=50, time=1, nodes=50_000_000)
 
 TAU_UNI = 0.5
 TAU_CNT = 0.1
@@ -92,7 +97,7 @@ def get_unique_puzzle_from_fen(fen, engine: SimpleEngine):
     if board.is_game_over(): return None  # NOTE: just check that the model has not generated a position that is checkmate already
     if board.legal_moves.count() == 1: return None  # NOTE: had a problem in this position without this: 8/8/p7/P7/1P6/6pk/6p1/7K w - - 0 52
     game = chess.pgn.Game.from_board(board)
-    info = engine.analyse(board, limit=pair_limit)
+    info = engine.analyse(board, limit=uniqueness_limit)
     score = info["score"].pov(board.turn)
 
     if score > mate_soon:

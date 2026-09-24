@@ -116,7 +116,9 @@ def main():
 
     # ====================== MODEL ======================
     model = MaskedDiffusion(config)
-    if continue_from_checkpoint: model.load_state_dict(checkpoint["model"])
+    if continue_from_checkpoint:
+        state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in checkpoint["model"].items()}
+        model.load_state_dict(state_dict)
     model.to(device=device)
 
     if distributed:

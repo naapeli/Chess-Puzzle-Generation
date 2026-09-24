@@ -72,7 +72,8 @@ checkpoint = torch.load(base_path / "runs" / args.run_type / args.run_name / arg
 
 config = checkpoint["config"]
 model = MaskedDiffusion(config)
-model.load_state_dict(checkpoint["model"])
+state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in checkpoint["model"].items()}
+model.load_state_dict(state_dict)
 model.to(device=device)
 model.eval()
 
@@ -80,7 +81,7 @@ n = args.n_fens
 batch_size = args.batch_size
 
 
-slurm_cpus = os.getenv("SLURM_CPUS_PER_GPU")
+slurm_cpus = os.getenv("SLURM_CPUS_PER_TASK") or os.getenv("SLURM_CPUS_PER_GPU")
 if slurm_cpus is not None:
     n_jobs = int(slurm_cpus) - 2
 else:
@@ -122,19 +123,27 @@ def process_puzzle(fen_tokens, move_tokens, base_theme, base_rating, device):
         
         entry["is_legal"] = True
         
-        engine.configure({"Clear Hash": None})
-        entry["counter_intuitive"], entry["counter_intuitive_value"] = counter_intuitive(fen, engine, return_value=True)
-        entry["is_puzzle"] = uniqueness(fen, engine)
-        
-        if entry["is_puzzle"]:
-            puzzle = get_unique_puzzle_from_fen(fen, engine)
-            if puzzle is not None:
-                entry["main_line"] = " ".join([move.uci() for move in puzzle.mainline])
-                existing_themes = cook(puzzle, engine)
-                entry["actual_themes"] = existing_themes
-                
-                if config.use_context:
-                    entry["themes_match"] = theme_reward(base_theme, existing_themes)
+        try:
+            engine.configure({"Clear Hash": None})
+            entry["counter_intuitive"], entry["counter_intuitive_value"] = counter_intuitive(fen, engine, return_value=True)
+            entry["is_puzzle"] = uniqueness(fen, engine)
+            
+            if entry["is_puzzle"]:
+                puzzle = get_unique_puzzle_from_fen(fen, engine)
+                if puzzle is not None:
+                    entry["main_line"] = " ".join([move.uci() for move in puzzle.mainline])
+                    existing_themes = cook(puzzle, engine)
+                    entry["actual_themes"] = existing_themes
+                    
+                    if config.use_context:
+                        entry["themes_match"] = theme_reward(base_theme, existing_themes)
+        except Exception:
+            try:
+                engine.quit()
+            except Exception:
+                pass
+            engine = SimpleEngine.popen_uci(stockfish_path)
+            engine.configure({"Threads": 1, "Hash": 32})
 
         return entry
 
@@ -155,90 +164,126 @@ if distributed:
 else:
     local_output_path = output_path
 
-# Ensure the local output file is cleared at the start of generation
+# Check existing lines if resuming
+existing_count = 0
 if local_output_path.exists():
-    local_output_path.unlink()
+    try:
+        with open(local_output_path, "r", encoding="utf-8") as f:
+            existing_count = max(0, sum(1 for _ in f) - 1)
+    except Exception:
+        existing_count = 0
 
-remaining = local_n
+if existing_count >= local_n:
+    if master_process:
+        print(f"File {local_output_path} already has {existing_count}/{local_n} positions. Nothing to generate.", flush=True)
+    remaining = 0
+else:
+    remaining = local_n - existing_count
+    if existing_count > 0 and master_process:
+        print(f"Resuming {local_output_path}: {existing_count}/{local_n} positions already exist, generating remaining {remaining}...", flush=True)
+
 iteration = 0
-total_iterations = (local_n + batch_size - 1) // batch_size
+total_iterations = (remaining + batch_size - 1) // batch_size if remaining > 0 else 0
+
+import threading
 
 # Re-use ThreadPoolExecutor across all batches for max performance
 executor = ThreadPoolExecutor(max_workers=n_jobs)
+prev_cpu_thread = None
+prev_results = []
+
 try:
-    while remaining > 0:
-        current_batch_size = min(batch_size, remaining)
-        iteration += 1
-        if master_process:
-            print(f"Iteration {iteration} / {total_iterations} (generating batch of size {current_batch_size})", flush=True)
-        
-        if config.use_context:
-            if args.context_dataset == "random":
-                themes, ratings = generate_random_themes(current_batch_size, lichess_distribution=False)
-                base_themes = themes
-                base_ratings = ratings.tolist()
-                themes_one_hot = torch.from_numpy(theme_preprocessor.transform(themes)).to(device=device, dtype=torch.float32)
-                scaled_ratings = scale_ratings(ratings).to(device=device, dtype=torch.float32)
+    while remaining > 0 or prev_cpu_thread is not None:
+        if remaining > 0:
+            current_batch_size = min(batch_size, remaining)
+            iteration += 1
+            if master_process:
+                print(f"Iteration {iteration} / {total_iterations} (sampling GPU batch of size {current_batch_size})", flush=True)
+            
+            if config.use_context:
+                if args.context_dataset == "random":
+                    themes, ratings = generate_random_themes(current_batch_size, lichess_distribution=False)
+                    base_themes = themes
+                    base_ratings = ratings.tolist()
+                    themes_one_hot = torch.from_numpy(theme_preprocessor.transform(themes)).to(device=device, dtype=torch.float32)
+                    scaled_ratings = scale_ratings(ratings).to(device=device, dtype=torch.float32)
+                else:
+                    indices = torch.randint(0, len(dataset), (current_batch_size,)).tolist()
+                    sampled_items = [dataset[idx] for idx in indices]
+                    
+                    sampled_themes = torch.stack([torch.as_tensor(item[2]) for item in sampled_items])
+                    sampled_ratings = torch.stack([torch.as_tensor(item[3]) for item in sampled_items])
+                    
+                    base_themes = theme_preprocessor.inverse_transform(sampled_themes.numpy())
+                    base_ratings = unscale_ratings(sampled_ratings).tolist()
+                    
+                    themes_one_hot = sampled_themes.to(device=device, dtype=torch.float32)
+                    scaled_ratings = sampled_ratings.to(device=device, dtype=torch.float32)
             else:
-                indices = torch.randint(0, len(dataset), (current_batch_size,)).tolist()
-                sampled_items = [dataset[idx] for idx in indices]
-                
-                sampled_themes = torch.stack([torch.as_tensor(item[2]) for item in sampled_items])
-                sampled_ratings = torch.stack([torch.as_tensor(item[3]) for item in sampled_items])
-                
-                base_themes = theme_preprocessor.inverse_transform(sampled_themes.numpy())
-                base_ratings = unscale_ratings(sampled_ratings).tolist()
-                
-                themes_one_hot = sampled_themes.to(device=device, dtype=torch.float32)
-                scaled_ratings = sampled_ratings.to(device=device, dtype=torch.float32)
-        else:
-            themes_one_hot = None
-            scaled_ratings = None
-            base_themes = None
-            base_ratings = None
+                themes_one_hot = None
+                scaled_ratings = None
+                base_themes = None
+                base_ratings = None
 
-        module = model.module if hasattr(model, "module") else model
-        start = perf_counter()
-        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
-            tokens = module.sample(themes_one_hot, scaled_ratings, batch_size=current_batch_size, steps=args.steps, temperature=args.temperature, generate_move_last=args.generate_move_last)
-        
-        # Copy to CPU once to avoid thread-level GPU synchronization bottleneck
-        tokens_cpu = tokens.cpu()
-        print(f"[Rank {rank}] Sampling time: {perf_counter() - start:.4f}s", flush=True)
-        
-        if config.predict_moves:
-            fen_tokens = tokens_cpu[:, :config.fen_length]
-            move_tokens = tokens_cpu[:, config.fen_length:]
-        else:
-            fen_tokens = tokens_cpu
-            move_tokens = None
+            module = model.module if hasattr(model, "module") else model
+            start = perf_counter()
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+                tokens = module.sample(themes_one_hot, scaled_ratings, batch_size=current_batch_size, steps=args.steps, temperature=args.temperature, generate_move_last=args.generate_move_last)
+            
+            tokens_cpu = tokens.cpu()
+            print(f"[Rank {rank}] GPU Sampling time: {perf_counter() - start:.4f}s", flush=True)
+            
+            if config.predict_moves:
+                fen_tokens = tokens_cpu[:, :config.fen_length]
+                move_tokens = tokens_cpu[:, config.fen_length:]
+            else:
+                fen_tokens = tokens_cpu
+                move_tokens = None
 
-        start2 = perf_counter()
-        args_list = [
-            (
-                fen_tokens[i],
-                move_tokens[i] if move_tokens is not None else None,
-                base_themes[i] if themes_one_hot is not None else None,
-                base_ratings[i] if scaled_ratings is not None else None,
-                device
-            ) for i in range(current_batch_size)
-        ]
-        batch_results = list(executor.map(lambda p: process_puzzle(*p), args_list))
-        print(f"[Rank {rank}] Processing time: {perf_counter() - start2:.4f}s", flush=True)
-        print(f"[Rank {rank}] Total iteration time: {perf_counter() - start:.4f}s", flush=True)
-        
-        # Write batch incrementally to file
-        df_batch = pd.DataFrame(batch_results)
-        write_header = not local_output_path.exists()
-        df_batch.to_csv(local_output_path, mode='a', index=False, header=write_header)
-        
-        remaining -= current_batch_size
+            args_list = [
+                (
+                    fen_tokens[i],
+                    move_tokens[i] if move_tokens is not None else None,
+                    base_themes[i] if themes_one_hot is not None else None,
+                    base_ratings[i] if scaled_ratings is not None else None,
+                    device
+                ) for i in range(current_batch_size)
+            ]
+            
+            remaining -= current_batch_size
+            has_current_batch = True
+        else:
+            has_current_batch = False
+
+        # Wait for previous batch's CPU Stockfish evaluation to finish and write to CSV
+        if prev_cpu_thread is not None:
+            prev_cpu_thread.join()
+            df_batch = pd.DataFrame(prev_results)
+            write_header = not local_output_path.exists() or os.path.getsize(local_output_path) == 0
+            df_batch.to_csv(local_output_path, mode='a', index=False, header=write_header)
+            prev_cpu_thread = None
+
+        # Launch CPU processing for current batch in background thread while GPU proceeds to next batch
+        if has_current_batch:
+            current_results = []
+            def run_cpu_evaluation(al, res_out, r):
+                start2 = perf_counter()
+                res = list(executor.map(lambda p: process_puzzle(*p), al))
+                res_out.extend(res)
+                print(f"[Rank {r}] CPU Processing time: {perf_counter() - start2:.4f}s", flush=True)
+
+            prev_results = current_results
+            prev_cpu_thread = threading.Thread(target=run_cpu_evaluation, args=(args_list, current_results, rank))
+            prev_cpu_thread.start()
 finally:
     executor.shutdown(wait=True)
 
 while not engine_pool.empty():
-    engine = engine_pool.get()
-    engine.quit()
+    try:
+        engine = engine_pool.get_nowait()
+        engine.quit()
+    except Exception:
+        break
 
 if distributed:
     # Synchronize all ranks to ensure writing is complete
@@ -264,4 +309,11 @@ if distributed:
             
     destroy_process_group()
 else:
-    print(f"Successfully generated and saved {local_n} positions to {output_path}", flush=True)
+    actual_count = 0
+    if local_output_path.exists():
+        try:
+            with open(local_output_path, "r", encoding="utf-8") as f:
+                actual_count = max(0, sum(1 for _ in f) - 1)
+        except Exception:
+            actual_count = local_n
+    print(f"Successfully generated and saved {actual_count} positions to {output_path}", flush=True)

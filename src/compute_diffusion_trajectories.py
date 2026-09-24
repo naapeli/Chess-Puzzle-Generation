@@ -225,7 +225,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     model = MaskedDiffusion(config)
-    model.load_state_dict(checkpoint["model"])
+    state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in checkpoint["model"].items()}
+    model.load_state_dict(state_dict)
     model.to(device=device)
     model.eval()
 

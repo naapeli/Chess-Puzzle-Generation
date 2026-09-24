@@ -513,7 +513,8 @@ if __name__ == "__main__":
     config.masking_schedule = string_to_schedule(config.schedule)
     
     model = MaskedDiffusion(config)
-    model.load_state_dict(checkpoint["model"])
+    state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in checkpoint["model"].items()}
+    model.load_state_dict(state_dict)
     model.to(device=device)
     if distributed:
         model = DistributedDataParallel(model, device_ids=[local_rank])
@@ -522,7 +523,8 @@ if __name__ == "__main__":
     reference_config.schedule = "linear"  # make the masking schedule of the reference model match the training masking schedule
     reference_config.masking_schedule = string_to_schedule(reference_config.schedule)
     reference_model = MaskedDiffusion(reference_config)
-    reference_model.load_state_dict(reference_checkpoint["model"])
+    ref_state_dict = {k.removeprefix("module.").removeprefix("_orig_mod."): v for k, v in reference_checkpoint["model"].items()}
+    reference_model.load_state_dict(ref_state_dict)
     reference_model.to(device=device)
     reference_model.eval()
     reference_model.requires_grad_(False)
@@ -536,8 +538,10 @@ if __name__ == "__main__":
 
     def save_state(step_val):
         checkpoint_path = path / f"model_{step_val:07d}.pt"
+        raw_model = model.module if distributed else model
+        raw_model = raw_model._orig_mod if hasattr(raw_model, "_orig_mod") else raw_model
         save_dict = {
-            "model": model.module.state_dict() if distributed else model.state_dict(),
+            "model": raw_model.state_dict(),
             "config": config,
             "optimizer": optimizer.state_dict(),
             "step": step_val

@@ -132,6 +132,24 @@ def tokenize_move(move):
     return tokens
 
 
+def tokenize_partial_move(move, mask_token):
+    move_toks = []
+    for idx, c in enumerate(move):
+        if c in ("?", "-"):
+            move_toks.append(mask_token)
+        elif idx < 4:
+            move_toks.append(enpassant_str_2_token.get(c, mask_token))
+        else:
+            move_toks.append(promote_str_2_token.get(c, mask_token))
+    while len(move_toks) < 5:
+        if len(move) == 4 and not any(ch in ("?", "-") for ch in move):
+            move_toks.append(FENTokens.none)
+        else:
+            move_toks.append(mask_token)
+    return move_toks[:5]
+
+
+
 def tokenize_fen(fen):
     board, side, castling, enpassant, halfmove, fullmove = fen.split(" ")
     board = re.sub(r"\d", lambda digit: "." * int(digit.group()), board)
