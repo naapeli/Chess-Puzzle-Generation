@@ -1,4 +1,4 @@
-# Generating Open-Source Chess Puzzles
+# Chess Puzzle Generation
 
 This branch contains the code for publishing our chess puzzle generation models to Huggingface diffusers.
 
