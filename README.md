@@ -43,7 +43,7 @@ conda activate environment
 
 ### 1. Supervised Training
 
-To train the base Masked Diffusion model on a dataset of chess puzzles on an HPC:
+To train the base Masked Diffusion model on a dataset of chess puzzles on a HPC:
 
 ```bash
 sbatch src/supervised.sh
@@ -67,7 +67,6 @@ The repository includes several scripts for evaluating checkpoints, measuring di
   ```
 - **Diffusion Trajectories:**
   ```bash
-  python compute_diffusion_trajectories.py
   sbatch src/compute_diffusion_trajectories.sh
   ```
 - **Diffusion Trajectories:**
