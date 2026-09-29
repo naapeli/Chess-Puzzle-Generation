@@ -4,9 +4,13 @@
            "checkpoint_path": "src/runs/rl/final_large_runs/ownThemeDistribution/run22/model_0020000.pt",
            "export_folder": "model_run22"
         },
-        "paper": {
+        "V1": {
             "checkpoint_path": "src/runs/rl/final_large_runs/final_thesis_experiments/full_diversity11/model_0003500.pt",
             "export_folder": "model_paper"
+        },
+        "V2": {
+            "checkpoint_path": "src/runs/rl/final_large_runs/ownThemeDistribution/run22/model_0020000.pt",
+            "export_folder": "model_run22"
         }
     }
 }

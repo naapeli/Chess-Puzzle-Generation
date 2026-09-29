@@ -4,20 +4,12 @@ import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# path = "model_main"
-# path = "model_paper"
 path = "model_run22"
 # path = "naapeli/chess-puzzle-generator"
 pipeline = DiffusionPipeline.from_pretrained(
     path,
     trust_remote_code=True,
 )
-# For exactly the same model as in the paper, use revision="paper":
-# pipeline = DiffusionPipeline.from_pretrained(
-#     "naapeli/chess-puzzle-generator",
-#     revision="paper",
-#     trust_remote_code=True,
-# )
 pipeline.to(device)
 
 themes = pipeline.Theme

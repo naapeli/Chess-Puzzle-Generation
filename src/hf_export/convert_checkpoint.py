@@ -110,8 +110,9 @@ def convert(checkpoint_path, output_dir):
     output_path.mkdir(parents=True, exist_ok=True)
     pipeline.save_pretrained(output_path)
 
-    # Copy pipeline.py to root and model.py to model/ for Diffusers custom module loader
+    # Copy the model card and custom module files into the export folder
     current_dir = Path(__file__).resolve().parent
+    shutil.copy(current_dir / "README.md", output_path / "README.md")
     shutil.copy(current_dir / "pipeline.py", output_path / "pipeline.py")
     (output_path / "model").mkdir(parents=True, exist_ok=True)
     shutil.copy(current_dir / "model.py", output_path / "model" / "model.py")

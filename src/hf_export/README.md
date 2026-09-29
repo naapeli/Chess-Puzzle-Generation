@@ -4,7 +4,6 @@ tags:
 - diffusers
 - chess
 - custom-pipeline
-pipeline_tag: text-generation
 ---
 
 # Chess Puzzle Generator
@@ -13,7 +12,7 @@ A masked diffusion model for generating chess puzzles conditioned on themes, rat
 
 ## Models
 
-We provide two models both with 268M parameters. The main model, which is the version described in our Arxiv paper, is trained mainly for generating as many positions with a unique solution that match the themes the user asked for. In contrast, the model described in our AAAI application was mainly trained to maximize counter-intuitivity and uniqueness instead of thematic accuracy. The model from our AAAI application can be used with the revision="paper" parameter.
+We provide two models both with 268M parameters. The main model, called V2, is trained mainly for generating as many positions with a unique solution that match the themes the user asked for. In contrast, the model called V1 was mainly trained to maximize counter-intuitivity and uniqueness instead of thematic accuracy. The two models can be obtained by using the revision parameter.
 
 
 ## Pipeline Documentation
@@ -120,10 +119,9 @@ pipeline = DiffusionPipeline.from_pretrained(
 )
 pipeline.to(device)
 
-# For exactly the same model as in the paper, use revision="paper":
 # pipeline = DiffusionPipeline.from_pretrained(
 #     "naapeli/chess-puzzle-generator",
-#     revision="paper",
+#     revision="V1",
 #     trust_remote_code=True,
 # )
 # pipeline.to(device)

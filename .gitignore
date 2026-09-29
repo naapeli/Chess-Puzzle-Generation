@@ -29,3 +29,7 @@ frontend/
 
 *.safetensors
 *.safetensors
+
+model_paper/
+model_run14/
+model_run22/
