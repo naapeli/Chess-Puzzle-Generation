@@ -28,3 +28,8 @@ Thesis/build/*
 frontend/
 
 *.safetensors
+
+
+model_paper/
+model_run14/
+model_run22/
