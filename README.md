@@ -1,4 +1,4 @@
-# Generating Open-Source Chess Puzzles
+# Chess Puzzle Generation
 
 This repository contains the official code for our paper `Conditional Generation of Creative Chess Puzzles with Diffusion Models`.
 
