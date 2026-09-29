@@ -2,6 +2,8 @@
 
 This repository contains the official code for our paper `Conditional Generation of Creative Chess Puzzles with Diffusion Models`.
 
+**Authors:** [Aatu Selkee](https://openreview.net/profile?id=~Aatu_Selkee1), [Severi Rissanen](https://openreview.net/profile?id=~Severi_Rissanen1), [Xidong Feng](https://openreview.net/profile?id=~Xidong_Feng1), [Tom Zahavy](https://openreview.net/profile?id=~Tom_Zahavy2), and [Eric Malmi](https://openreview.net/profile?id=~Eric_Malmi1).
+
 ## Overview
 
 Procedurally generating high-quality, aesthetic, and controllable chess puzzles is a complex task. Traditional methods rely on filtering positions from human play. In this project, we train a generative model for chess puzzle generation. Furthermore, we employ Reinforcement Learning via Denoising Diffusion Policy Optimization (DDPO) for further model training.
@@ -10,6 +12,12 @@ Procedurally generating high-quality, aesthetic, and controllable chess puzzles 
 - **Masked Diffusion for Chess:** A novel application of discrete diffusion models for generating chess positions.
 - **RL-based Alignment (DDPO):** Utilizing Stockfish evaluations and theme heuristics as reward signals to steer the diffusion process towards better puzzles.
 - **Controllable Generation:** Generating puzzles conditional on themes, ratings, partial board states and best moves.
+
+---
+
+## Master's Thesis
+
+This paper extends Aatu Selkee's master's thesis. The thesis was written with guidance from Adjunct Professor Eric Malmi and Professor Nuutti Hyvönen as well as all other co-authors. The thesis and presentation are presented in [`Thesis/`](Thesis/) and [`Thesis Presentation/`](Thesis%20Presentation/) for interested readers.
 
 ---
 

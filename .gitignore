@@ -21,6 +21,10 @@ Generate_positions/
 Thesis/build/*
 !Thesis/build/Thesis.pdf
 
+!Thesis Presentation/build
+Thesis Presentation/build/*
+!Thesis Presentation/build/Presentation.pdf
+
 frontend/
 
 *.safetensors
