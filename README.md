@@ -34,14 +34,13 @@ conda activate environment
 - `src/MaskingSchedule/MaskingSchedule.py`: Linear, cosine, polynomial, and geometric masking schedules.
 - `src/Config.py`: Configuration dataclass for tokenization, model architecture, and supervised training.
 - `src/tokenization/`: FEN and move tokenization, theme and rating preprocessing, and dataset preparation.
-- `src/supervised_training.py`: Supervised training of the base model.
-- `src/train_rl_ddpo.py` and `src/train_rl_espo.py`: Reinforcement learning training entry points for DDPO and ESPO. ESPO is legacy code for old experiments.
-- `src/rl/espo.py`: Shared RL utilities, including ELBO estimation, policy losses, grouped sampling, and theme rewards.
+- `src/scripts/training/`: Supervised and DDPO training scripts, replay buffer initialization, and legacy ESPO training scripts.
+- `src/rl/espo.py`: Legacy ESPO losses, ELBO estimation, and grouped sampling utilities.
+- `src/metrics/theme_conditioning.py`: Shared theme and move conditioning generation, theme matching rewards, and extra-theme counting.
 - `src/metrics/`: Stockfish-based puzzle evaluation, theme detection, reward components, diversity measures, and replay buffer utilities.
-- `src/generate_positions.py` and `src/generate_from_partial_board.py`: Generate positions from checkpoints or complete partially specified boards.
-- `src/evaluate_checkpoints.py`, `src/evaluate_lichess.py`, and `src/compute_distances.py`: Evaluate model checkpoints and Lichess puzzles, and measure distances within and between puzzle datasets.
-- `src/compute_diffusion_trajectories.py`: Generates and evaluates branching diffusion trajectories.
-- `src/*.sh`: Slurm job scripts for training, generation, and evaluation.
+- `src/scripts/evaluation/`: Checkpoint and Lichess evaluation, recomputation of metrics for existing puzzle CSVs, and distances within and between puzzle datasets.
+- `src/scripts/generation/`: Position generation, partial-board conditioning, and branching diffusion trajectories.
+- Slurm job scripts (`.sh`) are stored alongside their Python entry points in `src/scripts/training/`, `src/scripts/evaluation/`, and `src/scripts/generation/`.
 - `src/analysis.ipynb`, `src/plots.ipynb`, and `src/move_visualization.ipynb`: Notebooks for analysis, plotting, and move visualization.
 
 ---
@@ -57,7 +56,7 @@ Run the following commands from the repository root on an HPC cluster with Slurm
 To train the base Masked Diffusion model on a dataset of chess puzzles:
 
 ```bash
-sbatch src/supervised.sh
+sbatch src/scripts/training/supervised.sh
 ```
 
 ### 2. Reinforcement Learning (DDPO)
@@ -65,7 +64,7 @@ sbatch src/supervised.sh
 To train a pre-trained supervised model using DDPO:
 
 ```bash
-sbatch src/train_rl_ddpo.sh
+sbatch src/scripts/training/train_rl_ddpo.sh
 ```
 
 ### 3. Evaluation
@@ -73,19 +72,25 @@ sbatch src/train_rl_ddpo.sh
 - **Checkpoint Evaluation:** Generate and evaluate positions from every `.pt` checkpoint in a directory, saving one CSV per checkpoint.
 
   ```bash
-  sbatch src/evaluate_checkpoints.sh
+  sbatch src/scripts/evaluation/evaluate_checkpoints.sh
   ```
 
 - **Lichess Evaluation:** Evaluate puzzle legality, solution uniqueness, and counter-intuitiveness for a Lichess dataset.
 
   ```bash
-  sbatch src/evaluate_lichess.sh
+  sbatch src/scripts/evaluation/evaluate_lichess.sh
   ```
 
 - **Diversity and Distance:** Compute board and solution-line distances within generated puzzles and from generated puzzles to a Lichess reference dataset.
 
   ```bash
-  sbatch src/compute_distances.sh
+  sbatch src/scripts/evaluation/compute_distances.sh
+  ```
+
+- **Recompute Evaluations:** Recalculate puzzle metrics for existing CSVs.
+
+  ```bash
+  sbatch src/scripts/evaluation/recompute_evaluations.sh
   ```
 
 ### 4. Generation and Conditioning Experiments
@@ -93,17 +98,17 @@ sbatch src/train_rl_ddpo.sh
 - **Position Generation:** Generate and evaluate positions from a single checkpoint.
 
   ```bash
-  sbatch src/generate_positions.sh
+  sbatch src/scripts/generation/generate_positions.sh
   ```
 
 - **Partial-Board Conditioning:** Generate positions with a specified partial board, themes, rating, and optionally a best move.
 
   ```bash
-  sbatch src/generate_from_partial_board.sh
+  sbatch src/scripts/generation/generate_from_partial_board.sh
   ```
 
 - **Diffusion Trajectories:** Generate branching diffusion trajectories and evaluate their final positions.
 
   ```bash
-  sbatch src/compute_diffusion_trajectories.sh
+  sbatch src/scripts/generation/compute_diffusion_trajectories.sh
   ```

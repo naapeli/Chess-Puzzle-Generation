@@ -1,4 +1,3 @@
-# Python-generated files
 __pycache__/
 *.py[oc]
 build/
@@ -8,13 +7,10 @@ wheels/
 dataset/
 .vscode/
 
-# Virtual environments
 .venv
 
-# stockfish
 Stockfish/
 
-# tensorboard logs
 src/runs/
 
 *.csv
@@ -33,3 +29,10 @@ frontend/
 model_paper/
 model_run14/
 model_run22/
+
+Notes/
+Paper/
+Paper versions/
+Presentation 8.5/
+Presentation 13.2/
+Research plan/
