@@ -64,7 +64,7 @@ def get_stockfish_data(fen, model_move):
     
     stockfish.configure({"Clear Hash": None})
     ci_sol, ci_val = counter_intuitive(fen, stockfish, return_value=True)
-    puzzle = get_unique_puzzle_from_fen(fen, stockfish)
+    puzzle = get_unique_puzzle_from_fen(fen, stockfish, allow_one_mover=True, allow_losing=True)
 
     player_to_move = board.turn
     limit = Limit(depth=50, time=0.05, nodes=50_000_000)
@@ -299,8 +299,8 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
         good_intra_fen & good_inter_fen & 
         # good_intra_pv & good_inter_pv & 
         good_intra_opponent_pv & 
-        good_intra_abstracted_pv & 
-        good_inter_abstracted_pv #&
+        good_intra_abstracted_pv #& 
+        # good_inter_abstracted_pv #&
         # (entropy > np.log(args.steps) + 0.35)  # 0.6
     )
     # pass_diversity_filtering = torch.ones(batch_size, dtype=bool)
@@ -339,8 +339,8 @@ def get_reward(x_t, entropy, config, step, themes_tokens=None, ratings=None):
     effective_move_match = move_matches if config.predict_moves else torch.ones(batch_size, dtype=torch.bool)
     rewards = torch.zeros(batch_size, dtype=torch.float32)
     # positive_rewards = 1.0 + 20 * counter_intuitive_values
-    positive_rewards = 1.0 + 10.0 * counter_intuitive_values + torch.where(counter_intuitive_solution, 3.0, 0.0)
-    rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & effective_move_match & unique_solution, positive_rewards, rewards)
+    positive_rewards = 1.0 + 20.0 * counter_intuitive_values + torch.where(counter_intuitive_solution, 3.0, 0.0) + torch.where(effective_move_match, 0.5, 0.0)
+    rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & unique_solution, positive_rewards, rewards)
     # rewards = torch.where(legal_position & pass_diversity_filtering & piece_counts & themes_match & effective_move_match & unique_solution & (counter_intuitive_values > 0.0), 1.0, rewards)
     rewards = torch.where(~legal_position, -2.0, rewards)
     rewards = rewards.to(torch.float32)

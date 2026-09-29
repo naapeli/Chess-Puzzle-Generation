@@ -528,8 +528,32 @@ def interference(puzzle: Puzzle) -> bool:
     return False
 
 
+# def intermezzo(puzzle: Puzzle) -> bool:
+#     for node in puzzle.mainline[0::2][2:]:  # cannot start on our second move, as we have no access to the previous move
+#         if util.is_capture(node):
+#             capture_move = node.move
+#             capture_square = node.move.to_square
+#             op_node = node.parent
+#             assert isinstance(op_node, ChildNode)
+#             prev_pov_node = node.parent.parent
+#             assert isinstance(prev_pov_node, ChildNode)
+#             if not op_node.move.from_square in prev_pov_node.board().attackers(
+#                 not puzzle.pov, capture_square
+#             ):
+#                 if prev_pov_node.move.to_square != capture_square:
+#                     prev_op_node = prev_pov_node.parent
+#                     assert isinstance(prev_op_node, ChildNode)
+#                     return (
+#                         prev_op_node.move.to_square == capture_square
+#                         and util.is_capture(prev_op_node)
+#                         and capture_move in prev_op_node.board().legal_moves
+#                     )
+#     return False
 def intermezzo(puzzle: Puzzle) -> bool:
-    for node in puzzle.mainline[0::2][2:]:  # cannot start on our second move, as we have no access to the previous move
+    if len(puzzle.mainline) < 3:
+        return False
+
+    for node in puzzle.mainline[0::2][1:]:
         if util.is_capture(node):
             capture_move = node.move
             capture_square = node.move.to_square
@@ -541,13 +565,19 @@ def intermezzo(puzzle: Puzzle) -> bool:
                 not puzzle.pov, capture_square
             ):
                 if prev_pov_node.move.to_square != capture_square:
-                    prev_op_node = prev_pov_node.parent
-                    assert isinstance(prev_op_node, ChildNode)
-                    return (
-                        prev_op_node.move.to_square == capture_square
-                        and util.is_capture(prev_op_node)
-                        and capture_move in prev_op_node.board().legal_moves
-                    )
+                    if prev_pov_node.parent == puzzle.game:
+                        init_board = puzzle.game.board()
+                        is_forcing = prev_pov_node.board().is_check() or util.is_capture(prev_pov_node)
+                        if capture_move in init_board.legal_moves and init_board.is_capture(capture_move) and is_forcing:
+                            return True
+                    elif isinstance(prev_pov_node.parent, ChildNode):
+                        prev_op_node = prev_pov_node.parent
+                        if (
+                            prev_op_node.move.to_square == capture_square
+                            and util.is_capture(prev_op_node)
+                            and capture_move in prev_op_node.board().legal_moves
+                        ):
+                            return True
     return False
 
 

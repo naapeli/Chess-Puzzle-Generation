@@ -329,11 +329,10 @@ SPECIAL_THEMES = {
     "underPromotion": {"pattern_types": None},
     "castling": {"pattern_types": None},
     "enpassant": {"pattern_types": ["to_file"], "possible_files": FILES, "possible_ranks": RANKS},
-    "intermezzo": {"pattern_types": None}
 }
 
 DEFAULT = {
-    "pattern_types": ["from_square", "to_square", "files", "ranks", "full_move"],  # "to_file", "to_rank", "from_file", "from_rank", "from_square", "full_move"
+    "pattern_types": ["from_square", "to_square", "files", "ranks"],  # "to_file", "to_rank", "from_file", "from_rank", "from_square", "files", "ranks", "full_move"
     "possible_files": FILES,
     "possible_ranks": RANKS,
 }

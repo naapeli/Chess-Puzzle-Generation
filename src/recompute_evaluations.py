@@ -47,7 +47,9 @@ def parse_themes(target_themes_val):
                 return list(val)
         except Exception:
             pass
-        return [t.strip().strip("'\"") for t in target_themes_val.strip("()[]").split(",") if t.strip()]
+        if "," in target_themes_val:
+            return [t.strip().strip("'\"") for t in target_themes_val.strip("()[]").split(",") if t.strip()]
+        return [t.strip().strip("'\"") for t in target_themes_val.strip("()[]").split() if t.strip()]
     return None
 
 
@@ -200,7 +202,7 @@ def main():
     print(f"\nInitializing engine pool with {args.n_jobs} workers...", flush=True)
     for _ in range(args.n_jobs):
         engine = SimpleEngine.popen_uci(stockfish_path)
-        engine.configure({"Threads": 1, "Hash": 32})
+        engine.configure({"Threads": 1, "Hash": 128})
         engine_pool.put(engine)
 
     try:

@@ -15,26 +15,10 @@ from metrics.cook import cook
 
 
 mate_soon = Mate(15)
-# pair_limit = Limit(depth=50, time=30, nodes=25_000_000)
-# mate_defense_limit = Limit(depth=15, time=10, nodes=8_000_000)
-
-# pair_limit = Limit(depth=15, time=10, nodes=8_000_000)
-# mate_defense_limit = Limit(depth=8, time=5, nodes=4_000_000)
-# counter_intuitive_limit = Limit(depth=50, time=1, nodes=50_000_000)
-
-# pair_limit = Limit(depth=15, time=0.1, nodes=8_000_000)
-# mate_defense_limit = Limit(depth=8, time=0.05, nodes=4_000_000)
-# counter_intuitive_limit = Limit(depth=50, time=0.1, nodes=50_000_000)
-
-# uniqueness_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
-# pair_limit = Limit(depth=15, time=0.1, nodes=8_000_000)
-# mate_defense_limit = Limit(depth=8, time=0.05, nodes=4_000_000)
-# counter_intuitive_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
-
-uniqueness_limit = Limit(depth=50, time=0.2, nodes=50_000_000)
+uniqueness_limit = Limit(depth=50, time=0.2, nodes=50_000_000)  # 2.0
 pair_limit = Limit(depth=15, time=0.1, nodes=8_000_000)
 mate_defense_limit = Limit(depth=8, time=0.05, nodes=4_000_000)
-counter_intuitive_limit = Limit(depth=50, time=1, nodes=50_000_000)
+counter_intuitive_limit = Limit(depth=50, time=1, nodes=50_000_000)  # 2.0
 
 TAU_UNI = 0.5
 TAU_CNT = 0.1
@@ -92,7 +76,7 @@ def counter_intuitive_value(fen, engine: SimpleEngine):
 
 
 
-def get_unique_puzzle_from_fen(fen, engine: SimpleEngine):
+def get_unique_puzzle_from_fen(fen, engine: SimpleEngine, allow_one_mover=False, allow_losing=False):
     board = chess.Board(fen)
     if board.is_game_over(): return None  # NOTE: just check that the model has not generated a position that is checkmate already
     if board.legal_moves.count() == 1: return None  # NOTE: had a problem in this position without this: 8/8/p7/P7/1P6/6pk/6p1/7K w - - 0 52
@@ -106,14 +90,14 @@ def get_unique_puzzle_from_fen(fen, engine: SimpleEngine):
             return None
         return Puzzle(game, score)
     else:
-        solution = cook_advantage(deepcopy(game), board.turn, engine)
+        solution = cook_advantage(deepcopy(game), board.turn, engine, allow_losing=allow_losing)
         if not solution:
             return None
         
         # make sure the solution is odd, the last move is not the only one available and the puzzle is not a one mover
         while len(solution) % 2 == 0 or not solution[-1].second:
             solution = solution[:-1]
-        if not solution or len(solution) == 1:
+        if not solution or (len(solution) == 1 and not allow_one_mover):
             return None
         
         # update the main line
@@ -223,7 +207,7 @@ def cook_mate(node: ChildNode, winner: Color, engine: SimpleEngine) -> Optional[
     return [move] + follow_up
 
 
-def cook_advantage(node: ChildNode, winner: Color, engine: SimpleEngine) -> Optional[List[NextMovePair]]:
+def cook_advantage(node: ChildNode, winner: Color, engine: SimpleEngine, allow_losing=False) -> Optional[List[NextMovePair]]:
     board = node.board()
     if board.is_game_over():  # if we accidentally find checkmate, make sure we do not get an error
         return []
@@ -233,10 +217,10 @@ def cook_advantage(node: ChildNode, winner: Color, engine: SimpleEngine) -> Opti
     pair = get_next_pair(node, winner, engine)
     if not pair:
         return []
-    if pair.best.score < Cp(200):  # should maybe remove if we follow the paper exactly (I think paper does not do this, but Lichess Puzzler does)
+    if pair.best.score < Cp(200) and not allow_losing:
         return None
 
-    follow_up = cook_advantage(node.add_main_variation(pair.best.move), winner, engine)
+    follow_up = cook_advantage(node.add_main_variation(pair.best.move), winner, engine, allow_losing=allow_losing)
     if follow_up is None:
         return None
 
