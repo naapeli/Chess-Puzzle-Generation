@@ -77,7 +77,3 @@ The repository includes several scripts for evaluating checkpoints, measuring di
   ```bash
   sbatch src/generate_from_partial_board.sh
   ```
-
-
-## License
-MIT License

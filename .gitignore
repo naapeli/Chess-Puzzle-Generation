@@ -24,3 +24,8 @@ Generate_positions/
 Thesis/build/*
 !Thesis/build/Thesis.pdf
 *.out
+
+frontend/
+model_paper/
+model_run14/
+model_run22/
